@@ -1,0 +1,6 @@
+{
+  "appId": "com.bernardes.financeiroapp",
+  "appName": "FinanceiroApp",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
