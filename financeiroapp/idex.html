@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finanças do Claudinei</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f2f2f2; }
+header { background:#2E8B57; color:white; text-align:center; padding:15px 0; font-size:1.6em; border-bottom-left-radius:15px; border-bottom-right-radius:15px;}
+nav { display:flex; justify-content:space-around; background:#3CB371; padding:10px 0; position:sticky; top:0; z-index:100; }
+nav button { background:none; border:none; color:white; font-size:1em; padding:10px 15px; border-radius:8px; transition:0.3s; }
+nav button:hover { background: rgba(255,255,255,0.3); }
+.container { padding:15px; }
+.resumo { display:flex; justify-content:space-between; margin:10px 0; gap:5px; flex-wrap:wrap; }
+.resumo div { flex:1 1 30%; background:white; padding:15px; border-radius:12px; text-align:center; box-shadow:0 3px 8px rgba(0,0,0,0.15); }
+.mes-navegacao { display:flex; justify-content:space-between; align-items:center; margin:10px 0; }
+table { width:100%; border-collapse: collapse; margin-top:10px; background:white; border-radius:12px; overflow:hidden; font-size:0.9em; }
+thead, tr { display:table; width:100%; table-layout:fixed; }
+tbody { display:block; max-height:300px; overflow-y:auto; }
+th, td { padding:10px; text-align:center; border-bottom:1px solid #ddd; display:table-cell; }
+th { background:#2E8B57; color:white; }
+canvas { margin-top:15px; border-radius:12px; width:100%; }
+input, select, button { margin:5px 0; padding:10px; width:100%; font-size:1em; border-radius:8px; border:1px solid #ccc; }
+button { cursor:pointer; transition:0.2s; }
+button:hover { opacity:0.8; }
+button:active { transform:scale(0.97); }
+.hidden { display:none; }
+</style>
+</head>
+<body>
+
+<header>Finanças do Claudinei</header>
+
+<nav>
+  <button onclick="mostrarTela('resumo')">Resumo</button>
+  <button onclick="mostrarTela('nova')">Nova Transação</button>
+  <button onclick="mostrarTela('graficos')">Gráficos</button>
+</nav>
+
+<div class="container">
+
+  <!-- RESUMO -->
+  <div id="resumoTela">
+    <div class="mes-navegacao">
+      <button onclick="mudarMes(-1)">← Mês anterior</button>
+      <span id="mesExibido"></span>
+      <button onclick="mudarMes(1)">Próximo mês →</button>
+    </div>
+
+    <div class="resumo">
+      <div><strong>Saldo</strong><p id="saldo">0</p></div>
+      <div><strong>Entradas</strong><p id="totalEntradas">0</p></div>
+      <div><strong>Saídas</strong><p id="totalSaidas">0</p></div>
+      <div><strong>Meta</strong><input type="number" id="metaMensal" placeholder="R$ 0,00" onchange="atualizarResumo()"></div>
+    </div>
+
+    <button onclick="gerarPDF()" style="background:#2E8B57; color:white;">Gerar Relatório PDF</button>
+
+    <h3>Histórico</h3>
+    <label>Filtrar tipo:</label>
+    <select id="filtroTipo" onchange="atualizarHistorico()">
+      <option value="todos">Todos</option>
+      <option value="entrada">Entrada</option>
+      <option value="saida">Saída</option>
+    </select>
+    <label>Filtrar categoria:</label>
+    <select id="filtroCategoria" onchange="atualizarHistorico()">
+      <option value="todos">Todos</option>
+      <option value="cartao">Cartão</option>
+      <option value="emprestimo">Empréstimo</option>
+      <option value="outros">Outros</option>
+    </select>
+    <table>
+      <thead>
+        <tr>
+          <th>Descrição</th>
+          <th>Valor</th>
+          <th>Tipo</th>
+          <th>Categoria</th>
+          <th>Parcela</th>
+          <th>Vencimento</th>
+          <th>Ação</th>
+        </tr>
+      </thead>
+      <tbody id="historico"></tbody>
+    </table>
+  </div>
+
+  <!-- NOVA TRANSAÇÃO -->
+  <div id="novaTela" class="hidden">
+    <h3>Nova Transação</h3>
+    <input type="text" id="descricao" placeholder="Descrição">
+    <input type="number" id="valor" placeholder="Valor" min="0" step="0.01">
+    <select id="tipo">
+      <option value="entrada">Entrada</option>
+      <option value="saida">Saída</option>
+    </select>
+    <select id="categoria">
+      <option value="cartao">Cartão</option>
+      <option value="emprestimo">Empréstimo</option>
+      <option value="outros">Outros</option>
+    </select>
+    <input type="number" id="parcelas" placeholder="Parcelas (opcional)" min="1">
+    <input type="date" id="vencimento">
+    <button onclick="adicionarTransacao()">Adicionar</button>
+  </div>
+
+  <!-- GRÁFICOS -->
+  <div id="graficosTela" class="hidden">
+    <div class="mes-navegacao">
+      <button onclick="mudarMes(-1)">← Mês anterior</button>
+      <span id="mesExibidoGrafico"></span>
+      <button onclick="mudarMes(1)">Próximo mês →</button>
+    </div>
+    <h3>Gráfico Entradas x Saídas</h3>
+    <canvas id="graficoBarras" height="100"></canvas>
+    <h3>Distribuição de Saídas</h3>
+    <canvas id="graficoPizza" height="100"></canvas>
+  </div>
+
+</div>
+
+<script>
+let transacoes = JSON.parse(localStorage.getItem('transacoes')) || [];
+let mesAtualExibido = new Date();
+
+function salvarLocal() { localStorage.setItem('transacoes', JSON.stringify(transacoes)); }
+
+function mostrarTela(tela){
+  document.getElementById('resumoTela').classList.add('hidden');
+  document.getElementById('novaTela').classList.add('hidden');
+  document.getElementById('graficosTela').classList.add('hidden');
+  document.getElementById(tela+'Tela').classList.remove('hidden');
+  atualizarMesExibido();
+  if(tela==='resumo') atualizarTudo();
+  if(tela==='graficos') atualizarGrafico();
+}
+
+function atualizarMesExibido(){
+  const options = { month: 'long', year: 'numeric' };
+  document.getElementById('mesExibido').innerText = mesAtualExibido.toLocaleDateString('pt-BR', options);
+  document.getElementById('mesExibidoGrafico').innerText = mesAtualExibido.toLocaleDateString('pt-BR', options);
+}
+
+function mudarMes(delta){
+  mesAtualExibido.setMonth(mesAtualExibido.getMonth() + delta);
+  atualizarTudo();
+}
+
+function adicionarTransacao(){
+  const descricao = document.getElementById('descricao').value;
+  const valor = parseFloat(document.getElementById('valor').value);
+  const tipo = document.getElementById('tipo').value;
+  const categoria = document.getElementById('categoria').value;
+  const parcelas = parseInt(document.getElementById('parcelas').value)||1;
+  const vencimento = document.getElementById('vencimento').value;
+  if(!descricao || !valor || !vencimento) return alert('Preencha todos os campos!');
+
+  const idMestre = Date.now();
+  for(let i=0;i<parcelas;i++){
+    const dataVenc = new Date(vencimento);
+    dataVenc.setMonth(dataVenc.getMonth() + i);
+    transacoes.push({
+      descricao,
+      valor: parseFloat((valor/parcelas).toFixed(2)),
+      tipo,
+      categoria,
+      vencimento: dataVenc.toISOString().split('T')[0],
+      parcela: i+1,
+      totalParcelas: parcelas,
+      idMestre
+    });
+  }
+
+  salvarLocal();
+  document.getElementById('descricao').value='';
+  document.getElementById('valor').value='';
+  document.getElementById('parcelas').value='';
+  document.getElementById('vencimento').value='';
+  mostrarTela('resumo');
+}
+
+function transacoesDoMes(){
+  const mes = mesAtualExibido.getMonth();
+  const ano = mesAtualExibido.getFullYear();
+  return transacoes.filter(t=>{
+    const data = new Date(t.vencimento);
+    return data.getMonth()===mes && data.getFullYear()===ano;
+  });
+}
+
+function atualizarResumo(){
+  const lista = transacoesDoMes();
+  const entradas = lista.filter(t=>t.tipo==='entrada').reduce((a,b)=>a+b.valor,0);
+  const saidas = lista.filter(t=>t.tipo==='saida').reduce((a,b)=>a+b.valor,0);
+  document.getElementById('saldo').innerText = (entradas - saidas).toFixed(2);
+  document.getElementById('totalEntradas').innerText = entradas.toFixed(2);
+  document.getElementById('totalSaidas').innerText = saidas.toFixed(2);
+
+  // Meta
+  const meta = parseFloat(document.getElementById('metaMensal').value) || 0;
+  if(meta>0 && entradas >= meta){
+    document.getElementById('saldo').style.color='green';
+  } else {
+    document.getElementById('saldo').style.color='red';
+  }
+}
+
+function atualizarHistorico(){
+  const tbody = document.getElementById('historico');
+  tbody.innerHTML='';
+  const filtroTipo = document.getElementById('filtroTipo').value;
+  const filtroCategoria = document.getElementById('filtroCategoria').value;
+  let lista = transacoesDoMes();
+  if(filtroTipo!=='todos') lista = lista.filter(t=>t.tipo===filtroTipo);
+  if(filtroCategoria!=='todos') lista = lista.filter(t=>t.categoria===filtroCategoria);
+
+  const fragment = document.createDocumentFragment();
+  lista.forEach((t,index)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${t.descricao}</td>
+                    <td>${t.valor.toFixed(2)}</td>
+                    <td>${t.tipo}</td>
+                    <td>${t.categoria}</td>
+                    <td>${t.parcela}/${t.totalParcelas}</td>
+                    <td>${t.vencimento}</td>
+                    <td><button onclick="excluirParcela(${index})" style="color:red; font-weight:bold;">X</button></td>`;
+    fragment.appendChild(tr);
+  });
+  tbody.appendChild(fragment);
+}
+
+function excluirParcela(indexDoMes){
+  const listaMes = transacoesDoMes();
+  const parcelaSelecionada = listaMes[indexDoMes];
+  if(!parcelaSelecionada) return;
+  if(confirm(`Deseja excluir a parcela ${parcelaSelecionada.parcela}/${parcelaSelecionada.totalParcelas} de "${parcelaSelecionada.descricao}"?`)){
+    const idxOriginal = transacoes.findIndex(t => t === parcelaSelecionada);
+    if(idxOriginal >= 0){
+      transacoes.splice(idxOriginal,1);
+      salvarLocal();
+      atualizarTudo();
+    }
+  }
+}
+
+let chartB, chartP;
+function atualizarGrafico(){
+  const ctxB = document.getElementById('graficoBarras').getContext('2d');
+  const ctxP = document.getElementById('graficoPizza').getContext('2d');
+  const lista = transacoesDoMes();
+
+  const totalEntradas = lista.filter(t=>t.tipo==='entrada').reduce((a,b)=>a+b.valor,0);
+  const totalSaidas = lista.filter(t=>t.tipo==='saida').reduce((a,b)=>a+b.valor,0);
+  const catSaidas = ['cartao','emprestimo','outros'].map(c=>lista.filter(t=>t.tipo==='saida' && t.categoria===c).reduce((a,b)=>a+b.valor,0));
+
+  if(chartB) chartB.destroy();
+  if(chartP) chartP.destroy();
+
+  chartB = new Chart(ctxB,{
+    type:'bar',
+    data:{ labels:['Entradas','Saídas'], datasets:[{label:'Financeiro', data:[totalEntradas,totalSaidas], backgroundColor:['green','red']}] },
+    options:{ responsive:true, plugins:{ tooltip:{ callbacks:{ label: ctx => `R$ ${ctx.raw.toFixed(2)}` } } } }
+  });
+
+  chartP = new Chart(ctxP,{
+    type:'pie',
+    data:{ labels:['Cartão','Empréstimo','Outros'], datasets:[{data:catSaidas, backgroundColor:['orange','blue','gray']}] },
+    options:{ responsive:true, plugins:{ tooltip:{ callbacks:{ label: ctx => `R$ ${ctx.raw.toFixed(2)}` } } } }
+  });
+}
+
+function gerarPDF(){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(16);
+  doc.text("Relatório Financeiro", 105, 20, null, null, "center");
+  const mesAno = mesAtualExibido.toLocaleDateString('pt-BR', { month:'long', year:'numeric' });
+  doc.setFontSize(12);
+  doc.text(`Mês: ${mesAno}`, 20, 30);
+  doc.text(`Saldo: R$ ${document.getElementById('saldo').innerText}`, 20, 40);
+  doc.text(`Entradas: R$ ${document.getElementById('totalEntradas').innerText}`, 20, 50);
+  doc.text(`Saídas: R$ ${document.getElementById('totalSaidas').innerText}`, 20, 60);
+  const lista = transacoesDoMes();
+  doc.text("Histórico:", 20, 70);
+  let y = 80;
+  lista.forEach(t=>{
+    const linha = `${t.descricao} | R$ ${t.valor.toFixed(2)} | ${t.tipo} | ${t.categoria} | ${t.parcela}/${t.totalParcelas} | ${t.vencimento}`;
+    doc.text(linha, 20, y);
+    y += 10;
+    if(y>280){ doc.addPage(); y=20; }
+  });
+  doc.save(`Relatorio_${mesAno}.pdf`);
+}
+
+function atualizarTudo(){
+  atualizarMesExibido();
+  atualizarResumo();
+  atualizarHistorico();
+  atualizarGrafico();
+}
+
+atualizarTudo();
+</script>
+
+</body>
+</html>

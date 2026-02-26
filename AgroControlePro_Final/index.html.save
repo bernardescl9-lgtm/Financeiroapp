@@ -1,0 +1,210 @@
+<button class="tablinks" onclick="openTab(event,'tab2')">Histórico, Gráfico & Backup</button>
+</div>
+
+<div id="tab1" class="section" style="display:block;">
+
+<!-- FAZENDA -->
+<div class="card">
+<label>Fazenda:</label>
+<select id="listaFazendas" onchange="selecionarFazendaLista()"></select>
+<input type="text" id="novaFazenda" placeholder="Nova fazenda">
+<div class="flex">
+<button class="editBtn" onclick="criarNovaFazenda()">💾 Criar/Selecionar</button>
+<button class="smallDelete" onclick="apagarFazenda()">🗑️ Apagar</button>
+</div>
+</div>
+
+<!-- PRODUTO -->
+<div class="card">
+<label>Novo Produto</label>
+<input type="text" id="novoProduto" placeholder="Digite novo produto ou selecione abaixo">
+<select id="listaProdutosGlobais"></select>
+<button class="full" onclick="criarProduto()">Adicionar Produto</button>
+</div>
+
+<!-- PRODUTO SELECIONADO -->
+<div id="produtoDetalhes" class="card" style="display:none;">
+<label>Selecionar Produto da fazenda</label>
+<div class="flex">
+<select id="listaProdutos" style="flex:1" onchange="selecionarProduto()"></select>
+<button class="delete" onclick="excluirProduto()">X</button>
+</div>
+
+<label>Quantidade (Estoque)</label>
+<input type="number" id="quantidade" min="0">
+
+<div class="flex">
+<button style="flex:1" onclick="retirado()">Retirado</button>
+<button style="flex:1" onclick="aplicado()">Aplicado</button>
+</div>
+
+<button class="full" onclick="desfazerEstoque()">Desfazer Última Movimentação</button>
+
+<hr>
+
+<label>Dose Aplicada</label>
+<input type="number" id="dose" oninput="calcularDose()" min="0">
+<label>Área Aplicada (ha)</label>
+<input type="number" id="area" oninput="calcularDose()" min="0">
+<label>Qtd/ha</label>
+<input type="number" id="hectare" readonly>
+
+<div class="flex">
+<button style="flex:1" onclick="registrarAplicacao()">Registrar Aplicação</button>
+<button style="flex:1" onclick="desfazerAplicacao()">Desfazer Aplicação</button>
+</div>
+</div>
+
+<div class="card">
+<div class="total">Estoque Atual: <span id="estoque">0.00</span></div>
+<div class="total">Média por Hectare: <span id="media">0.00</span></div>
+</div>
+
+</div>
+
+<div id="tab2" class="section">
+
+<div class="card">
+<h3>📋 Histórico</h3>
+<table>
+<thead><tr><th>Tipo</th><th>Qtd</th><th>Dose</th><th>Área</th><th>Qtd/Ha</th><th>Data</th><th>Excluir</th></tr></thead>
+<tbody id="tabelaHistorico"></tbody>
+</table>
+</div>
+
+<div class="card">
+<h3>📊 Distribuição</h3>
+<canvas id="graficoCanvas"></canvas>
+</div>
+
+<div class="card">
+<h3>💾 Backup</h3>
+<button class="full" onclick="baixarBackup()">Fazer Backup</button>
+<input type="file" id="arquivoBackup" accept=".json" style="margin-top:3px" onchange="restaurarBackup(event)">
+</div>
+
+</div>
+
+<script>
+// ---------- Firebase Config ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyDqgk71ZIeNxEHsyBQkWJjjYGkaunmkBEk",
+  authDomain: "agrocontrolepro.firebaseapp.com",
+  projectId: "agrocontrolepro",
+  storageBucket: "agrocontrolepro.firebasestorage.app",
+  messagingSenderId: "519100859803",
+  appId: "1:519100859803:web:8628c74bfc00d044338d3e",
+  measurementId: "G-8S0233P7QR"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ---------- Abas ----------
+function openTab(evt, tabName){
+  document.querySelectorAll(".section").forEach(s=>s.style.display="none");
+  document.getElementById(tabName).style.display="block";
+  document.querySelectorAll(".tablinks").forEach(b=>b.classList.remove("active"));
+  evt.currentTarget.classList.add("active");
+}
+
+// ---------- Dados ----------
+let produtos={}, produtoAtual=null, chart=null, nomeFazenda="";
+let produtosGlobais = [];
+
+// ---------- Firebase Functions ----------
+function salvarFirebase(){
+  if(!nomeFazenda) return;
+  db.ref("fazendas/"+nomeFazenda).set({produtos, produtosGlobais});
+}
+
+function carregarFirebase(){
+  db.ref("fazendas").once("value").then(snapshot=>{
+    let data = snapshot.val() || {};
+    produtosGlobais = Object.keys(data.global || {});
+    carregarListaFazendas();
+  });
+}
+
+// ---------- Fazendas ----------
+function carregarListaFazendas(){
+    let select=document.getElementById("listaFazendas"); 
+    select.innerHTML='<option value="">--Selecione--</option>';
+    db.ref("fazendas").once("value").then(snapshot=>{
+        let data = snapshot.val() || {};
+        Object.keys(data).forEach(f=>{
+            if(f!=="global"){
+                let option = document.createElement("option");
+                option.value = f; option.text = f; select.appendChild(option);
+            }
+        });
+    });
+}
+
+function criarNovaFazenda(){
+    let nome=document.getElementById("novaFazenda").value.trim();
+    if(!nome) { alert("Digite nome da fazenda"); return; }
+    nomeFazenda = nome;
+    produtos = {};
+    salvarFirebase();
+    carregarListaFazendas();
+    document.getElementById("novaFazenda").value="";
+}
+
+// ---------- Produtos ----------
+function atualizarLista(){
+  let select=document.getElementById("listaProdutos"); select.innerHTML="";
+  Object.keys(produtos).forEach(nome=>{
+    let opt=document.createElement("option"); opt.value=nome; opt.text=nome; select.appendChild(opt);
+  });
+  select.value=produtoAtual;
+  toggleProdutoDetalhes();
+}
+
+function toggleProdutoDetalhes(){ document.getElementById("produtoDetalhes").style.display = produtoAtual?"block":"none"; }
+
+function criarProduto(){
+    let input=document.getElementById("novoProduto");
+    let nome=input.value.trim();
+    if(!nome) return;
+    if(!produtosGlobais.includes(nome)){ produtosGlobais.push(nome); }
+    if(!produtos[nome]) produtos[nome]={estoque:0,historico:[]};
+    produtoAtual = nome;
+    salvarFirebase();
+    atualizarLista();
+    input.value="";
+}
+
+function selecionarProduto(){ produtoAtual=document.getElementById("listaProdutos").value; toggleProdutoDetalhes(); }
+
+// ---------- Movimentações ----------
+function retirado(){
+  let qtd = Number(document.getElementById("quantidade").value);
+  if(!produtoAtual || qtd<=0) return;
+  produtos[produtoAtual].estoque+=qtd;
+  produtos[produtoAtual].historico.push({tipo:"Retirado",qtd,qtdHa:"",data:new Date().toLocaleString()});
+  salvarFirebase(); atualizarLista(); limparCampos();
+}
+
+function aplicado(){
+  let qtd = Number(document.getElementById("quantidade").value);
+  if(!produtoAtual || qtd<=0) return;
+  produtos[produtoAtual].estoque-=qtd;
+  produtos[produtoAtual].historico.push({tipo:"Aplicado",qtd,qtdHa:"",data:new Date().toLocaleString()});
+  salvarFirebase(); atualizarLista(); limparCampos();
+}
+
+function limparCampos(){
+  document.getElementById("quantidade").value="";
+  document.getElementById("dose").value="";
+  document.getElementById("area").value="";
+  document.getElementById("hectare").value="";
+}
+
+// ---------- Inicialização ----------
+window.onload=function(){
+  carregarFirebase();
+};
+</script>
+</body>
+</html>

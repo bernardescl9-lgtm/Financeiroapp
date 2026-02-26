@@ -1,0 +1,362 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ===== IMPORTS =====
+const express = require('express');
+const bodyParser = require('body-parser');
+const admin = require('firebase-admin');
+const PDFDocument = require('pdfkit');
+const ExcelJS = require('exceljs');
+const fs = require('fs');
+const readline = require('readline-sync');
+
+const app = express();
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// ===== FIREBASE =====
+var serviceAccount = require("./.json");const serviceAccount = require("./serviceAccountKey.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
+
+// ===== CONFIGURAÇÃO ADMIN =====
+const ADMIN_EMAIL = 'bernardescl9@gmail.com';
+const ADMIN_SENHA = '123456';
+
+// ===== FUNÇÕES =====
+async function criarFazenda(nome, usuario){
+  if(!nome) return console.log("Nome da fazenda obrigatório!");
+  const doc = await db.collection('fazendas').add({nome, usuario});
+  console.log(`Fazenda criada: ${nome} (ID: ${doc.id})`);
+}
+
+async function criarProduto(nome, usuario){
+  if(!nome) return console.log("Nome do produto obrigatório!");
+  const doc = await db.collection('produtosGlobais').add({nome, usuario});
+  console.log(`Produto criado: ${nome} (ID: ${doc.id})`);
+}
+
+async function adicionarLancamento(usuario, fazenda, produto, quantidade){
+  if(!usuario || !fazenda || !produto || !quantidade) return console.log("Todos os campos obrigatórios!");
+  const lancamento = {
+    usuario,
+    fazenda,
+    produto,
+    quantidade: Number(quantidade),
+    dose: Number(quantidade) || 0,
+    tipo:"Aplicação Técnica",
+    data: new Date().toISOString()
+  };
+  await db.collection('lancamentos').add(lancamento);
+  console.log(`Lançamento salvo: ${produto} para ${fazenda} (${usuario})`);
+}
+
+// ===== GERAR PDF =====
+async function gerarPDF(email){
+  const snapshot = await db.collection('lancamentos').where("usuario","==",email).get();
+  const doc = new PDFDocument();
+  const fileName = `relatorio_${email.replace(/[@.]/g,"_")}.pdf`;
+  doc.pipe(fs.createWriteStream(fileName));
+  doc.fontSize(18).text(`Relatório de ${email}`, {underline:true}); 
+  doc.moveDown();
+  snapshot.forEach(d=>{
+    const data = d.data();
+    doc.fontSize(12).text(`Fazenda: ${data.fazenda} | Produto: ${data.produto} | Quantidade: ${data.quantidade} | Dose: ${data.dose} | Data: ${new Date(data.data).toLocaleString()}`);
+  });
+  doc.end();
+  console.log(`PDF gerado: ${fileName}`);
+}
+
+// ===== GERAR EXCEL =====
+async function gerarExcel(email){
+  const snapshot = await db.collection('lancamentos').where("usuario","==",email).get();
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Lançamentos');
+  sheet.columns = [
+    {header:'Fazenda', key:'fazenda', width:20},
+    {header:'Produto', key:'produto', width:20},
+    {header:'Quantidade', key:'quantidade', width:10},
+    {header:'Dose', key:'dose', width:10},
+    {header:'Data', key:'data', width:25}
+  ];
+  snapshot.forEach(d=>{
+    const data = d.data();
+    sheet.addRow({
+      fazenda:data.fazenda,
+      produto:data.produto,
+      quantidade:data.quantidade,
+      dose:data.dose,
+      data:new Date(data.data).toLocaleString()
+    });
+  });
+  const fileName = `relatorio_${email.replace(/[@.]/g,"_")}.xlsx`;
+  await workbook.xlsx.writeFile(fileName);
+  console.log(`Excel gerado: ${fileName}`);
+}
+
+// ===== MENU CLI =====
+(async function main(){
+  console.log("===== Login =====");
+  const email = readline.questionEMail("E-mail: ");
+  const senha = readline.question("Senha: ", {hideEchoBack:true});
+
+  if(email===ADMIN_EMAIL && senha===ADMIN_SENHA){
+    console.log("\n=== Bem-vindo Administrador ===");
+    while(true){
+      console.log("\n1 - Ver histórico completo");
+      console.log("2 - Gerar PDF/Excel de todos usuários");
+      console.log("3 - Sair");
+      const opc = readline.question("Escolha: ");
+      if(opc==="1"){
+        const snapshot = await db.collection('lancamentos').get();
+        snapshot.forEach(d=>{
+          const data = d.data();
+          console.log(`Usuário: ${data.usuario} | Fazenda: ${data.fazenda} | Produto: ${data.produto} | Quantidade: ${data.quantidade} | Dose: ${data.dose} | Data: ${new Date(data.data).toLocaleString()}`);
+        });
+      } else if(opc==="2"){
+        const snapshot = await db.collection('lancamentos').get();
+        const usuarios = new Set(snapshot.docs.map(d=>d.data().usuario));
+        for(const u of usuarios){ await gerarPDF(u); await gerarExcel(u); }
+        console.log("Relatórios gerados para todos usuários!");
+      } else if(opc==="3") break; else console.log("Opção inválida");
+    }
+  } else {
+    console.log(`\n=== Bem-vindo ${email} ===`);
+    while(true){
+      console.log("\n1 - Criar fazenda");
+      console.log("2 - Criar produto");
+      console.log("3 - Adicionar lançamento");
+      console.log("4 - Ver histórico");
+      console.log("5 - Gerar PDF/Excel");
+      console.log("6 - Sair");
+      const opc = readline.question("Escolha: ");
+      if(opc==="1"){ const nome = readline.question("Nome da fazenda: "); await criarFazenda(nome,email);}
+      else if(opc==="2"){ const nome = readline.question("Nome do produto: "); await criarProduto(nome,email);}
+      else if(opc==="3"){
+        const fazenda = readline.question("Nome da fazenda: ");
+        const produto = readline.question("Nome do produto: ");
+        const quantidade = parseFloat(readline.question("Quantidade aplicada: "));
+        await adicionarLancamento(email,fazenda,produto,quantidade);
+      } else if(opc==="4"){
+        const snapshot = await db.collection('lancamentos').where("usuario","==",email).get();
+        snapshot.forEach(d=>{
+          const data = d.data();
+          console.log(`Fazenda: ${data.fazenda} | Produto: ${data.produto} | Quantidade: ${data.quantidade} | Dose: ${data.dose} | Data: ${new Date(data.data).toLocaleString()}`);
+        });
+      } else if(opc==="5"){ await gerarPDF(email); await gerarExcel(email);}
+      else if(opc==="6") break; else console.log("Opção inválida");
+    }
+  }
+  console.log("\n=== Sessão encerrada ===");
+})();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

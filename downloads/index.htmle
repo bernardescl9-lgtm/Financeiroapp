@@ -1,0 +1,213 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgroControle Pro</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body{margin:0;padding:0;background:#111;color:#fff;font-family:Arial;font-size:14px;}
+h2{text-align:center;margin:5px 0;font-size:18px;}
+.tab{display:flex;justify-content:space-around;background:#1e1e1e;}
+.tab button{flex:1;padding:10px;border:none;background:#1e1e1e;color:#fff;font-weight:bold;cursor:pointer;font-size:14px;}
+.tab button.active{background:#ff9800;color:#000;}
+.section{display:none;padding:8px;}
+.card{background:#1e1e1e;padding:8px;border-radius:8px;margin:5px 0;}
+input,select{width:100%;padding:6px;margin:3px 0;border:none;border-radius:5px;font-size:14px;}
+button{padding:8px;border:none;border-radius:5px;background:#ff9800;font-weight:bold;cursor:pointer;font-size:14px;}
+.full{width:100%;margin-top:3px;}
+.flex{display:flex;gap:5px;flex-wrap:wrap;}
+.delete{background:#e53935;width:40px;padding:4px;font-size:12px;}
+.smallDelete{background:#e53935;width:30px;padding:3px;font-size:10px;}
+.total{font-size:16px;margin-top:5px;}
+canvas{background:#fff;border-radius:8px;width:100% !important;height:200px !important;}
+table{width:100%;border-collapse:collapse;margin-top:5px;font-size:12px;}
+th,td{border:1px solid #444;padding:3px;text-align:center;}
+th{background:#333;}
+hr{margin:8px 0;border:1px solid #333;}
+.editBtn{background:none;border:none;color:#ff9800;font-weight:bold;cursor:pointer;padding:5px 8px;font-size:12px;}
+@media(max-width:500px){.flex{flex-direction:column;}button,input,select{font-size:14px;padding:8px;}}
+</style>
+</head>
+<body>
+
+<h2>🌾 AgroControle Pro</h2>
+
+<div class="tab">
+<button class="tablinks active" onclick="openTab(event,'tab1')">Fazenda & Produtos</button>
+<button class="tablinks" onclick="openTab(event,'tab2')">Histórico, Gráfico & Backup</button>
+</div>
+
+<div id="tab1" class="section" style="display:block;">
+
+<!-- FAZENDA -->
+<div class="card">
+<label>Fazenda:</label>
+<select id="listaFazendas" onchange="selecionarFazendaLista()"></select>
+<input type="text" id="novaFazenda" placeholder="Nova fazenda">
+<div class="flex">
+<button class="editBtn" onclick="criarNovaFazenda()">💾 Criar/Selecionar</button>
+<button class="smallDelete" onclick="apagarFazenda()">🗑️ Apagar</button>
+</div>
+</div>
+
+<!-- PRODUTO -->
+<div class="card">
+<label>Novo Produto</label>
+<input type="text" id="novoProduto" placeholder="Digite novo produto ou selecione abaixo">
+<select id="listaProdutosGlobais"></select>
+<button class="full" onclick="criarProduto()">Adicionar Produto</button>
+</div>
+
+<!-- PRODUTO SELECIONADO -->
+<div id="produtoDetalhes" class="card" style="display:none;">
+<label>Selecionar Produto da fazenda</label>
+<div class="flex">
+<select id="listaProdutos" style="flex:1" onchange="selecionarProduto()"></select>
+<button class="delete" onclick="excluirProduto()">X</button>
+</div>
+
+<label>Quantidade (Estoque)</label>
+<input type="number" id="quantidade" min="0">
+
+<div class="flex">
+<button style="flex:1" onclick="retirado()">Retirado</button>
+<button style="flex:1" onclick="aplicado()">Aplicado</button>
+</div>
+
+<button class="full" onclick="desfazerEstoque()">Desfazer Última Movimentação</button>
+
+<hr>
+
+<label>Dose Aplicada</label>
+<input type="number" id="dose" oninput="calcularDose()" min="0">
+<label>Área Aplicada (ha)</label>
+<input type="number" id="area" oninput="calcularDose()" min="0">
+<label>Qtd/ha</label>
+<input type="number" id="hectare" readonly>
+
+<div class="flex">
+<button style="flex:1" onclick="registrarAplicacao()">Registrar Aplicação</button>
+<button style="flex:1" onclick="desfazerAplicacao()">Desfazer Aplicação</button>
+</div>
+</div>
+
+<div class="card">
+<div class="total">Estoque Atual: <span id="estoque">0.00</span></div>
+<div class="total">Média por Hectare: <span id="media">0.00</span></div>
+</div>
+
+</div>
+
+<div id="tab2" class="section">
+
+<div class="card">
+<h3>📋 Histórico</h3>
+<table>
+<thead><tr><th>Tipo</th><th>Qtd</th><th>Dose</th><th>Área</th><th>Qtd/Ha</th><th>Data</th><th>Excluir</th></tr></thead>
+<tbody id="tabelaHistorico"></tbody>
+</table>
+</div>
+
+<div class="card">
+<h3>📊 Distribuição</h3>
+<canvas id="graficoCanvas"></canvas>
+</div>
+
+<div class="card">
+<h3>💾 Backup</h3>
+<button class="full" onclick="baixarBackup()">Fazer Backup</button>
+<input type="file" id="arquivoBackup" accept=".json" style="margin-top:3px" onchange="restaurarBackup(event)">
+</div>
+
+</div>
+
+<script>
+// ---------- Abas ----------
+function openTab(evt, tabName){
+  document.querySelectorAll(".section").forEach(s=>s.style.display="none");
+  document.getElementById(tabName).style.display="block";
+  document.querySelectorAll(".tablinks").forEach(b=>b.classList.remove("active"));
+  evt.currentTarget.classList.add("active");
+}
+
+// ---------- Dados ----------
+let produtos={}, produtoAtual=null, chart=null, nomeFazenda="";
+let produtosGlobais = JSON.parse(localStorage.getItem("produtosGlobais")||"[]");
+
+// ---------- Fazendas ----------
+function carregarListaFazendas(){
+    let select=document.getElementById("listaFazendas"); select.innerHTML='<option value="">--Selecione--</option>';
+    for(let key in localStorage) if(key.startsWith("dadosFazenda_")){
+        let nome=key.replace("dadosFazenda_",""), option=document.createElement("option");
+        option.value=nome; option.text=nome; select.appendChild(option);
+    }
+}
+function criarNovaFazenda(){
+    let nome=document.getElementById("novaFazenda").value.trim();
+    let select=document.getElementById("listaFazendas");
+    if(nome){ nomeFazenda=nome;
+        if(!localStorage.getItem("dadosFazenda_"+nomeFazenda)){ produtos={}; salvar(); }
+        else produtos=JSON.parse(localStorage.getItem("dadosFazenda_"+nomeFazenda));
+        document.getElementById("novaFazenda").value="";
+    } else { nomeFazenda=select.value; if(!nomeFazenda){ alert("Selecione ou digite"); return; } produtos=JSON.parse(localStorage.getItem("dadosFazenda_"+nomeFazenda)); }
+    localStorage.setItem("nomeFazenda",nomeFazenda);
+    carregarListaFazendas(); select.value=nomeFazenda;
+    produtoAtual=Object.keys(produtos)[0]||null; atualizarLista(); mostrar(); toggleProdutoDetalhes(); atualizarListaGlobais();
+}
+function selecionarFazendaLista(){ let select=document.getElementById("listaFazendas"), nome=select.value; if(!nome){ alert("Selecione"); return; } nomeFazenda=nome; produtos=JSON.parse(localStorage.getItem("dadosFazenda_"+nomeFazenda)); produtoAtual=Object.keys(produtos)[0]||null; atualizarLista(); mostrar(); toggleProdutoDetalhes(); atualizarListaGlobais();}
+function apagarFazenda(){ if(!nomeFazenda){ alert("Nenhuma fazenda."); return; } if(confirm("Apagar a fazenda '"+nomeFazenda+"'?")){ localStorage.removeItem("dadosFazenda_"+nomeFazenda); localStorage.removeItem("nomeFazenda"); produtos={}; produtoAtual=null; nomeFazenda=""; carregarListaFazendas(); atualizarLista(); mostrar(); toggleProdutoDetalhes(); alert("Fazenda apagada!"); }}
+
+// ---------- Produtos ----------
+function salvar(){ if(!nomeFazenda) return; localStorage.setItem("dadosFazenda_"+nomeFazenda,JSON.stringify(produtos)); }
+function atualizarLista(){ 
+    let select=document.getElementById("listaProdutos"); select.innerHTML=""; 
+    Object.keys(produtos).forEach(nome=>{ let opt=document.createElement("option"); opt.value=nome; opt.text=nome; select.appendChild(opt); }); 
+    select.value=produtoAtual; toggleProdutoDetalhes();
+}
+function atualizarListaGlobais(){
+    let select=document.getElementById("listaProdutosGlobais"); select.innerHTML='<option value="">--Sugestão Global--</option>';
+    produtosGlobais.forEach(p=>{ let opt=document.createElement("option"); opt.value=p; opt.text=p; select.appendChild(opt); });
+}
+function criarProduto(){
+    let input=document.getElementById("novoProduto"), sel=document.getElementById("listaProdutosGlobais");
+    let nome=input.value.trim()||sel.value.trim();
+    if(!nome) return;
+    if(!produtosGlobais.includes(nome)){ produtosGlobais.push(nome); localStorage.setItem("produtosGlobais",JSON.stringify(produtosGlobais)); }
+    if(!produtos[nome]) produtos[nome]={estoque:0,historico:[]};
+    produtoAtual=nome;
+    salvar(); atualizarLista(); mostrar(); toggleProdutoDetalhes(); atualizarListaGlobais();
+    input.value=""; sel.value="";
+}
+function selecionarProduto(){ produtoAtual=document.getElementById("listaProdutos").value; mostrar(); toggleProdutoDetalhes(); }
+
+// ---------- Toggle detalhes ----------
+function toggleProdutoDetalhes(){ document.getElementById("produtoDetalhes").style.display=produtoAtual?"block":"none"; }
+
+// ---------- Movimentações ----------
+function limparCampos(limparTudo=true){ document.getElementById("quantidade").value=""; if(limparTudo){ document.getElementById("dose").value=""; document.getElementById("area").value=""; document.getElementById("hectare").value=""; } }
+function calcularDose(){ let dose=Number(document.getElementById("dose").value), area=Number(document.getElementById("area").value); document.getElementById("hectare").value=(dose>0&&area>0)?(dose/area).toFixed(2):""; }
+function retirado(){ let qtd=Number(document.getElementById("quantidade").value); if(!produtoAtual||qtd<=0) return; produtos[produtoAtual].estoque+=qtd; produtos[produtoAtual].historico.push({tipo:"Retirado",qtd:qtd.toFixed(2),data:new Date().toLocaleString()}); salvar(); mostrar(); limparCampos(); }
+function aplicado(){ let qtd=Number(document.getElementById("quantidade").value); if(!produtoAtual||qtd<=0) return; produtos[produtoAtual].estoque-=qtd; produtos[produtoAtual].historico.push({tipo:"Aplicado",qtd:qtd.toFixed(2),data:new Date().toLocaleString()}); document.getElementById("dose").value=qtd; calcularDose(); salvar(); mostrar(); limparCampos(false); }
+function registrarAplicacao(){ let dose=Number(document.getElementById("dose").value), area=Number(document.getElementById("area").value), porHectare=Number(document.getElementById("hectare").value); if(!produtoAtual||dose<=0||area<=0) return; produtos[produtoAtual].historico.push({tipo:"Aplicação Técnica",dose:dose.toFixed(2),area:area.toFixed(2),porHectare:porHectare.toFixed(2),data:new Date().toLocaleString()}); salvar(); mostrar(); limparCampos(); }
+function desfazerEstoque(){ if(!produtoAtual) return; let hist=produtos[produtoAtual].historico; for(let i=hist.length-1;i>=0;i--){ if(hist[i].tipo==="Retirado"||hist[i].tipo==="Aplicado"){ let u=hist.splice(i,1)[0]; if(u.tipo==="Retirado") produtos[produtoAtual].estoque-=Number(u.qtd); if(u.tipo==="Aplicado") produtos[produtoAtual].estoque+=Number(u.qtd); break; } } salvar(); mostrar(); }
+function desfazerAplicacao(){ if(!produtoAtual) return; let hist=produtos[produtoAtual].historico; for(let i=hist.length-1;i>=0;i--){ if(hist[i].tipo==="Aplicação Técnica"){ hist.splice(i,1); break; } } salvar(); mostrar(); }
+function excluirProduto(){ if(!produtoAtual) return; if(confirm("Excluir este produto?")){ delete produtos[produtoAtual]; produtoAtual=Object.keys(produtos)[0]||null; salvar(); atualizarLista(); mostrar(); toggleProdutoDetalhes(); } }
+
+// ---------- Histórico ----------
+function mostrar(){
+    if(!produtoAtual) return;
+    let dados=produtos[produtoAtual]; document.getElementById("estoque").innerText=dados.estoque.toFixed(2);
+    let tbody=document.getElementById("tabelaHistorico"); tbody.innerHTML=""; let soma=0,cont=0;
+    dados.historico.forEach((h,index)=>{ 
+        let tr=document.createElement("tr"); 
+        tr.innerHTML=`<td>${h.tipo||""}</td><td>${h.qtd||""}</td><td>${h.dose||""}</td><td>${h.area||""}</td><td>${h.porHectare||""}</td><td>${h.data||""}</td>`;
+        let tdBtn=document.createElement("td"); 
+        let btn=document.createElement("button"); btn.innerText="X"; btn.className="smallDelete"; 
+        btn.onclick=()=>{ if(confirm("Excluir registro?")) excluirHistorico(index); }; 
+        tdBtn.appendChild(btn); tr.appendChild(tdBtn); tbody.appendChild(tr); 
+        if(h.porHectare){ soma+=Number(h.porHectare); cont++; } 
+    });
+    document.getElementById("media").innerText
+
